@@ -23,7 +23,7 @@ export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
-    allowedHosts: true,
+    appType: "custom",
   };
 
   const vite = await createViteServer({
@@ -36,7 +36,10 @@ export async function setupVite(app: Express, server: Server) {
         process.exit(1);
       },
     },
-    server: serverOptions,
+    server: {
+      middlewareMode: true,
+      hmr: { server }
+    },
     appType: "custom",
   });
 
@@ -68,18 +71,32 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+  // In production, client-side files are in the dist directory
+  const distPath = path.resolve(import.meta.dirname, "..");
+  const clientDistPath = path.resolve(distPath, "client");
 
-  if (!fs.existsSync(distPath)) {
-    throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
-    );
+  if (!fs.existsSync(clientDistPath)) {
+    log(`Warning: Could not find the client build directory: ${clientDistPath}`, "express");
+    log("Creating fallback client directory", "express");
+    try {
+      fs.mkdirSync(clientDistPath, { recursive: true });
+    } catch (error) {
+      log(`Error creating client directory: ${error}`, "express");
+    }
   }
 
-  app.use(express.static(distPath));
+  log(`Serving static files from: ${clientDistPath}`, "express");
+  app.use(express.static(clientDistPath));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    // Check if index.html exists
+    const indexPath = path.resolve(clientDistPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      log(`Warning: index.html not found at ${indexPath}`, "express");
+      res.status(404).send("Application is still building. Please refresh in a moment.");
+    }
   });
 }
