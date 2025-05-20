@@ -86,7 +86,29 @@ export function serveStatic(app: Express) {
   }
 
   log(`Serving static files from: ${clientDistPath}`, "express");
-  app.use(express.static(clientDistPath));
+  
+  // Configure Express static with proper MIME types
+  app.use(express.static(clientDistPath, {
+    setHeaders: (res, filePath) => {
+      // Set correct MIME types for JavaScript modules
+      if (filePath.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+      } else if (filePath.endsWith('.mjs')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+      } else if (filePath.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css; charset=UTF-8');
+      } else if (filePath.endsWith('.json')) {
+        res.setHeader('Content-Type', 'application/json; charset=UTF-8');
+      }
+      
+      // Cache settings for static assets
+      if (filePath.match(/\.(js|css|jpg|jpeg|png|gif|ico|woff|woff2|ttf|svg)$/)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    }
+  }));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
