@@ -16,6 +16,12 @@ export default defineConfig({
         ]
       : []),
   ],
+  // Ensure proper MIME types for ES modules
+  server: {
+    headers: {
+      "Content-Type": "application/javascript"
+    }
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
