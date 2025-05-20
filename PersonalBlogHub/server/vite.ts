@@ -71,54 +71,121 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  // In production, client-side files are in the dist directory
-  const distPath = path.resolve(import.meta.dirname, "..");
-  const clientDistPath = path.resolve(distPath, "client");
-
-  if (!fs.existsSync(clientDistPath)) {
-    log(`Warning: Could not find the client build directory: ${clientDistPath}`, "express");
-    log("Creating fallback client directory", "express");
+  // Try multiple possible build output directories
+  const possibleDirs = [
+    // Primary location - dist/client is where Vite builds to
+    path.resolve(import.meta.dirname, "../dist/client"),
+    // Secondary location - sometimes files are copied directly to dist
+    path.resolve(import.meta.dirname, "../dist"),
+    // Tertiary location - might be in client directory directly
+    path.resolve(import.meta.dirname, "../client"),
+    // Last resort location - try the current working directory
+    path.resolve(process.cwd(), "client")
+  ];
+  
+  // Find the first directory that exists and has an index.html file
+  let clientDistPath = null;
+  for (const dir of possibleDirs) {
+    if (fs.existsSync(dir) && fs.existsSync(path.join(dir, "index.html"))) {
+      clientDistPath = dir;
+      log(`Found client files at: ${clientDistPath}`, "express");
+      break;
+    } else {
+      log(`Checked path ${dir} - directory or index.html not found`, "express");
+    }
+  }
+  
+  // If no directory with index.html was found, use the first directory that exists
+  if (!clientDistPath) {
+    for (const dir of possibleDirs) {
+      if (fs.existsSync(dir)) {
+        clientDistPath = dir;
+        log(`No index.html found, using directory: ${clientDistPath}`, "express");
+        break;
+      }
+    }
+  }
+  
+  // If no directory was found, create one as a last resort
+  if (!clientDistPath) {
+    clientDistPath = possibleDirs[0];
+    log(`Warning: Could not find any client build directory, creating: ${clientDistPath}`, "express");
     try {
       fs.mkdirSync(clientDistPath, { recursive: true });
     } catch (error) {
       log(`Error creating client directory: ${error}`, "express");
     }
   }
-
+  
+  // Log directory contents for debugging
   log(`Serving static files from: ${clientDistPath}`, "express");
+  try {
+    const files = fs.readdirSync(clientDistPath);
+    log(`Found ${files.length} files in client directory: ${files.join(", ")}`, "express");
+  } catch (error) {
+    log(`Error reading client directory: ${error}`, "express");
+  }
   
   // Configure Express static with proper MIME types
   app.use(express.static(clientDistPath, {
     setHeaders: (res, filePath) => {
       // Set correct MIME types for JavaScript modules
       if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+        log(`Setting MIME type for JavaScript file: ${filePath}`, "express");
+        res.setHeader('Content-Type', 'application/javascript');
       } else if (filePath.endsWith('.mjs')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+        res.setHeader('Content-Type', 'application/javascript');
       } else if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css; charset=UTF-8');
+        res.setHeader('Content-Type', 'text/css');
       } else if (filePath.endsWith('.json')) {
-        res.setHeader('Content-Type', 'application/json; charset=UTF-8');
+        res.setHeader('Content-Type', 'application/json');
       }
       
-      // Cache settings for static assets
-      if (filePath.match(/\.(js|css|jpg|jpeg|png|gif|ico|woff|woff2|ttf|svg)$/)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
-      } else {
-        res.setHeader('Cache-Control', 'no-cache');
-      }
+      // Force no caching during development
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
     }
   }));
+  
+  // Check for assets directory and serve it specifically if it exists
+  const assetsPath = path.resolve(clientDistPath, "assets");
+  if (fs.existsSync(assetsPath)) {
+    log(`Found assets directory at: ${assetsPath}`, "express");
+    app.use("/assets", express.static(assetsPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.js')) {
+          res.setHeader('Content-Type', 'application/javascript');
+        } else if (filePath.endsWith('.css')) {
+          res.setHeader('Content-Type', 'text/css');
+        }
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    }));
+  }
 
+  // Add a rule specifically for JavaScript files
+  app.get('*.js', (req, res, next) => {
+    log(`Setting Content-Type for JS file: ${req.path}`, "express");
+    res.set('Content-Type', 'application/javascript');
+    next();
+  });
+  
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
-    // Check if index.html exists
     const indexPath = path.resolve(clientDistPath, "index.html");
     if (fs.existsSync(indexPath)) {
+      log(`Serving index.html from: ${indexPath}`, "express");
       res.sendFile(indexPath);
     } else {
       log(`Warning: index.html not found at ${indexPath}`, "express");
-      res.status(404).send("Application is still building. Please refresh in a moment.");
+      res.status(404).send(
+        "<html><body style='font-family: Arial, sans-serif; text-align: center; padding: 50px;'>"
+        + "<h1>Application is still building</h1>"
+        + "<p>The application is still initializing or there may be an issue with the build. Please refresh in a moment.</p>"
+        + "<p>If this persists, check the application logs for more information.</p>"
+        + "</body></html>"
+      );
     }
   });
 }
