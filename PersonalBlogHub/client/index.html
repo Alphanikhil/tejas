@@ -16,7 +16,42 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Use the original source path, which Vite will replace during build -->
     <script type="module" src="/src/main.tsx"></script>
+    
+    <script>
+      // Helper to load JavaScript when in production mode but with issues
+      function tryLoadingJsFile() {
+        // If we're in a browser environment and the initial module load fails
+        if (typeof window !== 'undefined') {
+          // Try to find any JS file in the assets directory
+          fetch('/assets/')
+            .then(response => response.text())
+            .then(html => {
+              const jsFileMatch = html.match(/href=["\']\/assets\/(index-[a-zA-Z0-9]+\.js)/); 
+              if (jsFileMatch && jsFileMatch[1]) {
+                console.log('Found JS file:', jsFileMatch[1]);
+                const script = document.createElement('script');
+                script.type = 'module';
+                script.src = '/assets/' + jsFileMatch[1];
+                document.head.appendChild(script);
+              }
+            })
+            .catch(error => {
+              console.error('Error finding JS files:', error);
+            });
+        }
+      }
+      
+      // Check if the initial module load fails
+      window.addEventListener('error', function(e) {
+        if (e.target && e.target.src && e.target.src.includes('/src/main.tsx')) {
+          console.log('Development module failed to load, trying to find production file');
+          tryLoadingJsFile();
+        }
+      }, true);
+    </script>
+    
     <!-- This is a replit script which adds a banner on the top of the page when opened in development mode outside the replit environment -->
     <script type="text/javascript" src="https://replit.com/public/js/replit-dev-banner.js"></script>
   </body>
