@@ -2,8 +2,11 @@ services:
   - type: web
     name: personal-blog-hub
     env: node
-    buildCommand: npm install && npm run build && npm run db:push
+    buildCommand: npm install && npm run build
     startCommand: npm start
+    # Add this to ensure database is ready before web service
+    dependsOn:
+      - personal-blog-db
     envVars:
       - key: NODE_ENV
         value: production
